@@ -100,6 +100,7 @@ export class PostgresDialect extends Dialect {
   divisionIsInteger = true;
   supportsSumDistinctFunction = false;
   unnestWithNumbers = false;
+  stringTypeName = 'VARCHAR';
   defaultSampling = {rows: 50000};
   supportUnnestArrayAgg = true;
   supportsAggDistinct = true;

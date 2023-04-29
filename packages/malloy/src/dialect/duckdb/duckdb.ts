@@ -75,6 +75,7 @@ export class DuckDBDialect extends Dialect {
   name = 'duckdb';
   defaultNumberType = 'DOUBLE';
   defaultDecimalType = 'NUMERIC';
+  stringTypeName = 'VARCHAR';
   hasFinalStage = false;
   divisionIsInteger = true;
   supportsSumDistinctFunction = true;

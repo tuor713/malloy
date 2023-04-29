@@ -1390,13 +1390,15 @@ class QueryFieldDistinctKey extends QueryAtomicField {
       return this.parent.dialect.concat(
         parentKey || '', // shouldn't have to do this...
         "'x'",
-        this.parent.dialect.sqlFieldReference(
-          this.parent.getIdentifier(),
-          '__row_id',
-          'string',
-          true,
-          false
-        )
+        'CAST(' +
+          this.parent.dialect.sqlFieldReference(
+            this.parent.getIdentifier(),
+            '__row_id',
+            'string',
+            true,
+            false
+          ) +
+          ' AS VARCHAR)'
       );
     } else {
       // return this.parent.getIdentifier() + "." + "__distinct_key";
@@ -2050,6 +2052,7 @@ class JoinInstance {
     for (const f of this.queryStruct.fieldDef.fields.filter(isPhysical)) {
       dialectFieldList.push({
         type: f.type,
+        nativeField: f,
         sqlExpression: getIdentifier(f),
         sqlOutputName: getIdentifier(f),
       });
@@ -2091,6 +2094,7 @@ type StageGroupMaping = {fromGroup: number; toGroup: number};
 
 type StageOutputContext = {
   sql: string[]; // sql expressions
+  fieldNames: string[];
   lateralJoinSQLExpressions: string[];
   dimensionIndexes: number[]; // which indexes are dimensions
   fieldIndex: number;
@@ -3006,6 +3010,7 @@ class QueryQuery extends QueryField {
   //  but for now, it is just googleSQL.
   generatePipelinedStages(
     outputPipelinedSQL: OutputPipelinedSQL[],
+    fieldNames: string[],
     lastStageName: string,
     stageWriter: StageWriter
   ): string {
@@ -3019,10 +3024,27 @@ class QueryQuery extends QueryField {
       `
       )
       .join(',\n');
-    return stageWriter.addStage(
-      `SELECT * replace (${pipelinesSQL}) FROM ${lastStageName}
-      `
-    );
+
+    if (this.parent.dialect.name === 'trino') {
+      let pipelineNames = new Set<string>(
+        outputPipelinedSQL.map(o => o.sqlFieldName)
+      );
+
+      let remainingFields = fieldNames
+        .filter(f => !pipelineNames.has(f))
+        .join(',\n');
+      if (remainingFields.length > 0) {
+        remainingFields += ', ';
+      }
+
+      return stageWriter.addStage(
+        `SELECT ${remainingFields}${pipelinesSQL} FROM ${lastStageName}`
+      );
+    } else {
+      return stageWriter.addStage(
+        `SELECT * replace (${pipelinesSQL}) FROM ${lastStageName}`
+      );
+    }
   }
 
   generateStage0Fields(
@@ -3049,6 +3071,7 @@ class QueryQuery extends QueryField {
               fi.analyticalSQL = outputFieldName;
               output.lateralJoinSQLExpressions.push(`${exp} as ${outputName}`);
               output.sql.push(outputFieldName);
+              output.fieldNames.push(outputName);
               if (fi.f.fieldDef.type === 'number') {
                 const outputNameString =
                   this.parent.dialect.sqlMaybeQuoteIdentifier(
@@ -3056,6 +3079,7 @@ class QueryQuery extends QueryField {
                   );
                 const outputFieldNameString = `__lateral_join_bag.${outputNameString}`;
                 output.sql.push(outputFieldNameString);
+                output.fieldNames.push(outputName);
                 output.dimensionIndexes.push(output.fieldIndex++);
                 output.lateralJoinSQLExpressions.push(
                   `CAST(${exp} as STRING) as ${outputNameString}`
@@ -3065,10 +3089,12 @@ class QueryQuery extends QueryField {
             } else {
               // just treat it like a regular field.
               output.sql.push(`${exp} as ${outputName}`);
+              output.fieldNames.push(outputName);
             }
             output.dimensionIndexes.push(output.fieldIndex++);
           } else if (isCalculatedField(fi.f)) {
             output.sql.push(`${exp} as ${outputName}`);
+            output.fieldNames.push(outputName);
             output.fieldIndex++;
           }
         }
@@ -3083,6 +3109,7 @@ class QueryQuery extends QueryField {
             output.outputPipelinedSQL
           );
           output.sql.push(`${s} as ${outputName}`);
+          output.fieldNames.push(outputName);
           output.fieldIndex++;
         }
       }
@@ -3111,6 +3138,7 @@ class QueryQuery extends QueryField {
             resultSet.groupSet
           }`
         );
+        output.fieldNames.push(`__delete__${resultSet.groupSet}`);
         output.fieldIndex++;
       }
     }
@@ -3207,6 +3235,7 @@ class QueryQuery extends QueryField {
       dimensionIndexes: [1],
       fieldIndex: 2,
       sql: ['group_set'],
+      fieldNames: ['group_set'],
       lateralJoinSQLExpressions: [],
       groupsAggregated: [],
       outputPipelinedSQL: [],
@@ -3239,6 +3268,7 @@ class QueryQuery extends QueryField {
 
     this.resultStage = this.generatePipelinedStages(
       f.outputPipelinedSQL,
+      f.fieldNames,
       this.resultStage,
       stageWriter
     );
@@ -3265,6 +3295,7 @@ class QueryQuery extends QueryField {
               sqlFieldName
             );
             output.sql.push(`${exp} as ${sqlFieldName}`);
+            output.fieldNames.push(sqlFieldName);
             output.dimensionIndexes.push(output.fieldIndex++);
           } else if (isCalculatedField(fi.f)) {
             const exp = this.parent.dialect.sqlAnyValue(
@@ -3272,6 +3303,7 @@ class QueryQuery extends QueryField {
               sqlFieldName
             );
             output.sql.push(`${exp} as ${sqlFieldName}`);
+            output.fieldNames.push(sqlFieldName);
             output.fieldIndex++;
           }
         }
@@ -3291,6 +3323,7 @@ class QueryQuery extends QueryField {
           });
           groupsToMap.push(fi.groupSet);
           output.sql.push(`${s} as ${sqlFieldName}`);
+          output.fieldNames.push(sqlFieldName);
           output.fieldIndex++;
         } else {
           this.generateDepthNFields(depth, fi, output, stageWriter);
@@ -3316,6 +3349,7 @@ class QueryQuery extends QueryField {
       dimensionIndexes: [1],
       fieldIndex: 2,
       sql: ['group_set'],
+      fieldNames: ['group_set'],
       lateralJoinSQLExpressions: [],
       groupsAggregated: [],
       outputPipelinedSQL: [],
@@ -3335,6 +3369,8 @@ class QueryQuery extends QueryField {
 
     this.resultStage = this.generatePipelinedStages(
       f.outputPipelinedSQL,
+      // TODO
+      f.fieldNames,
       this.resultStage,
       stageWriter
     );
@@ -3348,6 +3384,7 @@ class QueryQuery extends QueryField {
   ): string {
     let s = 'SELECT\n';
     const fieldsSQL: string[] = [];
+    const fieldNames: string[] = [];
     let fieldIndex = 1;
     const outputPipelinedSQL: OutputPipelinedSQL[] = [];
     const dimensionIndexes: number[] = [];
@@ -3361,6 +3398,7 @@ class QueryQuery extends QueryField {
                 `${name}__${this.rootResult.groupSet}`
               ) + ` as ${sqlName}`
             );
+            fieldNames.push(sqlName);
             dimensionIndexes.push(fieldIndex++);
           } else if (isCalculatedField(fi.f)) {
             fieldsSQL.push(
@@ -3372,6 +3410,7 @@ class QueryQuery extends QueryField {
                 sqlName
               )
             );
+            fieldNames.push(sqlName);
             fieldIndex++;
           }
         }
@@ -3385,6 +3424,7 @@ class QueryQuery extends QueryField {
               outputPipelinedSQL
             )} as ${sqlName}`
           );
+          fieldNames.push(sqlName);
           fieldIndex++;
         } else if (fi.firstSegment.type === 'project') {
           fieldsSQL.push(
@@ -3396,6 +3436,7 @@ class QueryQuery extends QueryField {
               sqlName
             )
           );
+          fieldNames.push(sqlName);
           fieldIndex++;
         }
       }
@@ -3425,6 +3466,7 @@ class QueryQuery extends QueryField {
     this.resultStage = stageWriter.addStage(s);
     this.resultStage = this.generatePipelinedStages(
       outputPipelinedSQL,
+      fieldNames,
       this.resultStage,
       stageWriter
     );
@@ -3492,11 +3534,19 @@ class QueryQuery extends QueryField {
       ) {
         // fieldsSQL.push(`${name}__${resultStruct.groupSet} as ${sqlName}`);
         // outputFieldNames.push(name);
+
         dialectFieldList.push({
           type:
             field instanceof FieldInstanceField
               ? field.f.fieldDef.type
               : 'struct',
+          nativeField:
+            field instanceof FieldInstanceField
+              ? field.f.fieldDef
+              : this.convertFieldInstanceResultToFieldDef(
+                  sqlName,
+                  field as FieldInstanceResult
+                ),
           sqlExpression: this.parent.dialect.sqlMaybeQuoteIdentifier(
             `${name}__${resultStruct.groupSet}`
           ),
@@ -3512,6 +3562,7 @@ class QueryQuery extends QueryField {
         // );
         dialectFieldList.push({
           type: field.type,
+          nativeField: field.f.fieldDef,
           sqlExpression: field.f.generateExpression(resultStruct),
           sqlOutputName: sqlName,
         });
@@ -3573,6 +3624,35 @@ class QueryQuery extends QueryField {
     // return `${aggregateFunction}(CASE WHEN group_set=${
     //   resultStruct.groupSet
     // } THEN STRUCT(${fieldsSQL.join(",\n")}) END${tailSQL})`;
+  }
+
+  convertFieldInstanceResultToFieldDef(
+    name: string,
+    res: FieldInstanceResult
+  ): FieldDef {
+    let fields: Array<{name: string; fif: FieldInstanceField; index: number}> =
+      [];
+    for (const [name, fi] of res.allFields) {
+      if (fi instanceof FieldInstanceField) {
+        if (fi.fieldUsage.type === 'result') {
+          fields.push({name, fif: fi, index: fi.fieldUsage.resultIndex});
+        }
+      }
+    }
+    fields.sort(f => f.index);
+
+    return {
+      type: 'struct',
+      name: name,
+      dialect: 'query',
+      structSource: {type: 'nested'},
+      structRelationship: {
+        type: 'nested',
+        fieldName: name,
+        isArray: false,
+      },
+      fields: fields.map(f => f.fif.f.fieldDef),
+    };
   }
 
   generateTurtlePipelineSQL(

@@ -24,10 +24,10 @@
 
 import {RuntimeList, allDatabases} from '../../runtimes';
 import '../../util/db-jest-matchers';
-import {mkSqlEqWith, runQuery, testIf} from '../../util';
+import {databasesFromEnvironmentOr, mkSqlEqWith, runQuery, testIf} from '../../util';
 import {DateTime as LuxonDateTime} from 'luxon';
 
-const runtimes = new RuntimeList(allDatabases);
+const runtimes = new RuntimeList(databasesFromEnvironmentOr(allDatabases));
 
 const timeSQL =
   "SELECT DATE '2021-02-24' as t_date, TIMESTAMP '2021-02-24 03:05:06' as t_timestamp";

@@ -46,6 +46,8 @@ function getSplitFunction(db: string) {
       `string_to_array(${column}, '${splitChar}')`,
     'duckdb_wasm': (column: string, splitChar: string) =>
       `string_to_array(${column}, '${splitChar}')`,
+    'trino': (column: string, splitChar: string) =>
+      `split(${column}, '${splitChar}')`,
   }[db];
 }
 
@@ -223,7 +225,7 @@ runtimes.runtimeMap.forEach((runtime, databaseName) => {
       }
       run: f->{
         aggregate:
-          row_count is count(concat(state,a.r))
+          row_count is count(concat(state,a.r::string))
           left_sum is airport_count.sum()
           right_sum is a.r.sum()
           sum_sum is sum(airport_count + a.r)
@@ -861,11 +863,11 @@ SELECT row_to_json(finalStage) as row FROM __stage0 AS finalStage`);
     }
   );
 
-  const sql1234 = `${databaseName}.sql("SELECT 1 as a, 2 as b UNION ALL SELECT 3, 4")`;
+  const sql1234 = `${databaseName}.sql("SELECT * FROM (SELECT 1 as a, 2 as b UNION ALL SELECT 3, 4) ORDER BY a ASC")`;
 
   it(`sql as source - ${databaseName}`, async () => {
     await expect(`
-      run: ${sql1234} -> { select: a }
+      run: ${sql1234} -> { select: a; order_by: a asc }
     `).malloyResultMatches(runtime, {a: 1});
   });
 
@@ -897,6 +899,7 @@ SELECT row_to_json(finalStage) as row FROM __stage0 AS finalStage`);
       run: ${sql1234} -> {
         extend: { dimension: c is a + 1 }
         select: c
+        order_by: c asc
       }
     `).malloyResultMatches(runtime, {c: 2});
   });
@@ -907,6 +910,7 @@ SELECT row_to_json(finalStage) as row FROM __stage0 AS finalStage`);
         view: bar is {
           extend: { dimension: c is a + 1 }
           select: c
+          order_by: c asc
         }
       } -> bar
     `).malloyResultMatches(runtime, {c: 2});
@@ -922,6 +926,7 @@ SELECT row_to_json(finalStage) as row FROM __stage0 AS finalStage`);
         view: baz is bar +  {
           extend: {dimension: d is c + 1}
           select: d
+          order_by: d asc
         }
       } -> baz
     `).malloyResultMatches(runtime, {d: 3});
@@ -943,10 +948,12 @@ SELECT row_to_json(finalStage) as row FROM __stage0 AS finalStage`);
     await expect(`
       run: ${databaseName}.sql("""
         SELECT 5 as a, 2 as b
-        UNION ALL SELECT 3, 4
+        UNION ALL
+        SELECT 3, 4
       """) -> {
         extend: {dimension:  c is b + 4}
         select: x is a * c
+        order_by: x desc
       }
       `).malloyResultMatches(runtime, {x: 30});
   });

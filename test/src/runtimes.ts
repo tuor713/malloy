@@ -34,6 +34,7 @@ import {BigQueryConnection} from '@malloydata/db-bigquery';
 import {DuckDBConnection} from '@malloydata/db-duckdb';
 import {DuckDBWASMConnection} from '@malloydata/db-duckdb/wasm';
 import {PooledPostgresConnection} from '@malloydata/db-postgres';
+import {TrinoConnection} from '@malloydata/db-trino';
 
 export class BigQueryTestConnection extends BigQueryConnection {
   // we probably need a better way to do this.
@@ -55,6 +56,21 @@ export class BigQueryTestConnection extends BigQueryConnection {
 export class PostgresTestConnection extends PooledPostgresConnection {
   // we probably need a better way to do this.
 
+  public async runSQL(
+    sqlCommand: string,
+    options?: RunSQLOptions
+  ): Promise<MalloyQueryData> {
+    try {
+      return await super.runSQL(sqlCommand, options);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log(`Error in SQL:\n ${sqlCommand}`);
+      throw e;
+    }
+  }
+}
+
+export class TrinoTestConnection extends TrinoConnection {
   public async runSQL(
     sqlCommand: string,
     options?: RunSQLOptions
@@ -136,6 +152,9 @@ export function runtimeFor(dbName: string): SingleConnectionRuntime {
     case 'duckdb_wasm':
       connection = new DuckDBWASMTestConnection(dbName);
       break;
+    case 'trino':
+      connection = new TrinoTestConnection(dbName, {}, {catalog: 'malloytest'});
+      break;
     default:
       throw new Error(`Unknown runtime "${dbName}`);
   }
@@ -146,7 +165,13 @@ export function testRuntimeFor(connection: Connection) {
   return new SingleConnectionRuntime(files, connection);
 }
 
-export const allDatabases = ['postgres', 'bigquery', 'duckdb', 'duckdb_wasm'];
+export const allDatabases = [
+  'postgres',
+  'bigquery',
+  'duckdb',
+  'duckdb_wasm',
+  'trino',
+];
 type RuntimeDatabaseNames = (typeof allDatabases)[number];
 
 export class RuntimeList {

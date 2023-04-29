@@ -27,6 +27,7 @@ import {PostgresDialect} from './postgres';
 import {StandardSQLDialect} from './standardsql';
 import {FunctionDef, FunctionOverloadDef} from '../model/malloy_types';
 import {DialectFunctionOverloadDef} from './functions';
+import {TrinoDialect} from './trino';
 
 const dialectMap = new Map<string, Dialect>();
 
@@ -45,6 +46,7 @@ export function registerDialect(d: Dialect): void {
 registerDialect(new PostgresDialect());
 registerDialect(new StandardSQLDialect());
 registerDialect(new DuckDBDialect());
+registerDialect(new TrinoDialect());
 
 function paramsEqual(
   a: DialectFunctionOverloadDef,

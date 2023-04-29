@@ -25,6 +25,7 @@ import {
   DialectFragment,
   Expr,
   ExtractUnit,
+  FieldDef,
   Sampling,
   StructDef,
   TimeFieldType,
@@ -36,8 +37,9 @@ import {
 } from '../model/malloy_types';
 import {DialectFunctionOverloadDef} from './functions';
 
-interface DialectField {
+export interface DialectField {
   type: string;
+  nativeField?: FieldDef,
   sqlExpression: string;
   sqlOutputName: string;
 }
@@ -90,6 +92,7 @@ export abstract class Dialect {
   abstract defaultDecimalType: string;
   abstract udfPrefix: string;
   abstract hasFinalStage: boolean;
+  abstract stringTypeName: string;
   abstract divisionIsInteger: boolean;
   abstract supportsSumDistinctFunction: boolean;
   abstract unnestWithNumbers: boolean;
@@ -108,6 +111,7 @@ export abstract class Dialect {
 
   // StandardSQL dialects can't partition on expression in window functions
   cantPartitionWindowFunctionsOnExpressions = false;
+  defaultNumericType = 'NUMERIC';
 
   // return the definition of a function with the given name
   abstract getGlobalFunctionDef(

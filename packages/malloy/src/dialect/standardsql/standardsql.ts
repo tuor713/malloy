@@ -99,6 +99,7 @@ export class StandardSQLDialect extends Dialect {
   name = 'standardsql';
   defaultNumberType = 'FLOAT64';
   defaultDecimalType = 'NUMERIC';
+  stringTypeName = 'STRING';
   udfPrefix = '__udf';
   hasFinalStage = false;
   divisionIsInteger = false;
