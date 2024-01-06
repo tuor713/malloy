@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "@malloydata/malloy": "^0.0.126",
-    "trino-client": "0.2.1"
+    "trino-client": "0.2.2"
   }
 }

@@ -81,10 +81,9 @@ export class TrinoConnection
 
   public async runSQL(
     sqlCommand: string,
-    options: Partial<RunSQLOptions> = {},
-    rowIndex = 0
+    options: Partial<RunSQLOptions> = {}
   ): Promise<MalloyQueryData> {
-    return await this.runTrinoSQL(sqlCommand, DEFAULT_PAGE_SIZE, rowIndex);
+    return await this.runTrinoSQL(sqlCommand, options.rowLimit || DEFAULT_PAGE_SIZE);
   }
 
   private arrayInnerType(type: any): any {
@@ -133,11 +132,9 @@ export class TrinoConnection
     return res;
   }
 
-  // TODO handle rowIndex
   private async runTrinoSQL(
     sqlCommand: string,
-    pageSize: number,
-    rowIndex
+    pageSize: number
   ) {
     const client = await this.getClient();
     const iter = await client.query(sqlCommand);
@@ -164,7 +161,7 @@ export class TrinoConnection
   }
 
   public async test(): Promise<void> {
-    await this.runTrinoSQL('SELECT 1', 1, 1);
+    await this.runTrinoSQL('SELECT 1', 1);
   }
 
   public isPool(): this is PooledConnection {
@@ -176,7 +173,33 @@ export class TrinoConnection
   }
 
   public canStream(): this is StreamingConnection {
-    return false;
+    return true;
+  }
+
+  public async *runSQLStream(
+    sqlCommand: string,
+    {rowLimit, abortSignal}: RunSQLOptions = {}
+  ): AsyncIterableIterator<QueryDataRow> {
+    const client = await this.getClient();
+    const iter = await client.query(sqlCommand);
+
+    let i = 0;
+    outer: for await (const row of iter) {
+      const columns = (row.columns || []).map(c => c.name);
+
+      // typeSignature is in the result but not in the trino-client API
+      // it's the parsed representation of the types
+      const types = (row.columns || []).map(c => c['typeSignature']);
+
+      for (const r of row.data || []) {
+        yield this.trinoRowToMalloyRow(columns, types, r);
+
+        i++;
+        if ((rowLimit !== undefined && i >= rowLimit) || abortSignal?.aborted) {
+          break outer;
+        }
+      }
+    }
   }
 
   async close(): Promise<void> {
